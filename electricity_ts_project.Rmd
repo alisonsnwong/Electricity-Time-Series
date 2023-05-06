@@ -1,0 +1,26 @@
+---
+title: "STA 137 Project"
+output: html_document
+date: "2023-05-06"
+---
+
+```{r}
+
+library(readxl)
+
+setwd("C:\\Users\\jaxnp\\OneDrive\\Documents\\STA 137")
+energy_csv <- read.csv("C:\\Users\\jaxnp\\OneDrive\\Documents\\STA 137\\energy-ca.csv")
+
+
+# I subset the data frame to only select certain columns. Then, I get rid of the first two rows, since they are unnecessary (these rows were the result of a small issue when importing the file). Then, I check the amount of times in which "CA" appears in the "X.2" column which corresponds to the respective state. Then, I add column names. Then, I update the data frame to only include rows where "State == 'CA'". Then, I get rid of empty rows. Then, I check the amount of times in which the State column equals "CA". Since this number, 158, matches with the earlier number, we have support to say no important data was lost. 
+
+energy_df <- subset(energy_csv, select = c("X", "X.1", "X.2", "X.16"))
+energy_df <- energy_df[-c(1,2),]
+table(grepl("CA", energy_df$X.2))
+colnames(energy_df) <- c("Year", "Month", "State", "Total Sales")
+energy_df <- energy_df[energy_df$State == "CA",]
+row.names(energy_df) <- NULL
+table(grepl("CA", energy_df$State))
+
+
+```

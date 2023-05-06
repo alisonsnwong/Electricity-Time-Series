@@ -4,23 +4,86 @@ output: html_document
 date: "2023-05-06"
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+path <- "/Users/alisonwong/git/electricity-time-series"
+knitr::opts_knit$set(root.dir = path)
+setwd(path)
+
+# Load Packages 
+library(readxl)
+library(tidyverse)
+```
+
 ```{r}
 
-library(readxl)
-
-setwd("C:\\Users\\jaxnp\\OneDrive\\Documents\\STA 137")
-energy_csv <- read.csv("C:\\Users\\jaxnp\\OneDrive\\Documents\\STA 137\\energy-ca.csv")
-
+# Read data 
+energy <- read.csv("energy-ca.csv")
 
 # I subset the data frame to only select certain columns. Then, I get rid of the first two rows, since they are unnecessary (these rows were the result of a small issue when importing the file). Then, I check the amount of times in which "CA" appears in the "X.2" column which corresponds to the respective state. Then, I add column names. Then, I update the data frame to only include rows where "State == 'CA'". Then, I get rid of empty rows. Then, I check the amount of times in which the State column equals "CA". Since this number, 158, matches with the earlier number, we have support to say no important data was lost. 
 
-energy_df <- subset(energy_csv, select = c("X", "X.1", "X.2", "X.16"))
+# Subset data to select columns we need: Year, Month, State, Total Sales
+energy_df <- subset(energy, select = c("X", "X.1", "X.2", "X.16"))
 energy_df <- energy_df[-c(1,2),]
-table(grepl("CA", energy_df$X.2))
-colnames(energy_df) <- c("Year", "Month", "State", "Total Sales")
+
+# Subset data to select California 
+colnames(energy_df) <- c("Year", "Month", "State", "Total_Sales")
+table(grepl("CA", energy_df$State)) # check
 energy_df <- energy_df[energy_df$State == "CA",]
 row.names(energy_df) <- NULL
-table(grepl("CA", energy_df$State))
+table(grepl("CA", energy_df$State)) # match first check
 
-
+head(energy_df)
 ```
+
+```{r}
+
+# Change to integers
+energy_df$Year <- as.integer(energy_df$Year)
+energy_df$Month <- as.integer(energy_df$Month)
+energy_df$Total_Sales <- as.integer(gsub(",", "", energy_df$Total_Sales))
+
+# Arrange energy_df in ascending order of time
+energy_df <- energy_df %>%
+  arrange(Year, Month)
+
+# Time series model 
+energy_ts <- ts(energy_df[,4], start= 2010, frequency = 12)
+ts.plot(energy_ts)
+```
+
+Compute yearly average $\hat m_j$ over all months a $\hat m_j=\frac{1}{12}\sum_{k=1}^{12}x_{j,k}$ and eliminate the yearly trend
+
+```{r}
+
+# REMOVE 2023
+m_j1 = tapply(energy_ts, floor(time(energy_ts)), mean)
+m_j1 = ts(rep(m_j1, each = 12), start = 2010, frequency = 12)
+
+ts.plot(energy_ts, m_j1, col = c("black", "red"), main = "Time series with Yearly Average")
+ts.plot(energy_ts - m_j1, col = "blue")
+```
+
+
+Compute monthly average $\hat s_k$
+
+```{r echo=F}
+s_k1=tapply(energy_ts-m_j1,cycle(energy_ts), mean)
+s_k1=ts(rep(s_k1,times=6),start=1973,frequency = 12)
+ts.plot(energy_ts-m_j1,s_k1,col=c("blue","green"))
+res1=energy_ts-m_j1-s_k1
+ts.plot(res1,col="grey")
+```
+
+Compute trend $m_t$ using MA filtering 
+
+```{r}
+# 
+mt = stats::filter(energy_ts, filter=c(0.5,rep(1,times=11), 0.5), method="convolution", sides=2)/12
+
+ts.plot(energy_ts,mt,col=c("black","red"))
+diff <- na.omit(energy_ts - mt)
+ts.plot(diff, col="blue")
+```
+

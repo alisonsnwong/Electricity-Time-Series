@@ -65,17 +65,6 @@ ts.plot(energy_ts, m_j1, col = c("black", "red"), main = "Time series with Yearl
 ts.plot(energy_ts - m_j1, col = "blue")
 ```
 
-
-Compute monthly average $\hat s_k$
-
-```{r echo=F}
-s_k1=tapply(energy_ts-m_j1,cycle(energy_ts), mean)
-s_k1=ts(rep(s_k1,times=6),start=1973,frequency = 12)
-ts.plot(energy_ts-m_j1,s_k1,col=c("blue","green"))
-res1=energy_ts-m_j1-s_k1
-ts.plot(res1,col="grey")
-```
-
 Compute trend $m_t$ using MA filtering 
 
 ```{r}

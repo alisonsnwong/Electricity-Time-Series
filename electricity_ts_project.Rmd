@@ -1,5 +1,5 @@
 ---
-title: "STA 137 Project"
+title: "Electricity Time Series Project"
 output: html_document
 date: "2023-05-06"
 ---
@@ -14,6 +14,7 @@ setwd(path)
 # Load Packages 
 library(readxl)
 library(tidyverse)
+library(latex2exp)
 ```
 
 ```{r}
@@ -23,12 +24,12 @@ energy <- read.csv("energy-ca.csv")
 
 # I subset the data frame to only select certain columns. Then, I get rid of the first two rows, since they are unnecessary (these rows were the result of a small issue when importing the file). Then, I check the amount of times in which "CA" appears in the "X.2" column which corresponds to the respective state. Then, I add column names. Then, I update the data frame to only include rows where "State == 'CA'". Then, I get rid of empty rows. Then, I check the amount of times in which the State column equals "CA". Since this number, 158, matches with the earlier number, we have support to say no important data was lost. 
 
-# Subset data to select columns we need: Year, Month, State, Total Sales
+# Subset data to select columns we need: Year, Month, State, Megawatts (sold)
 energy_df <- subset(energy, select = c("X", "X.1", "X.2", "X.16"))
 energy_df <- energy_df[-c(1,2),]
 
 # Subset data to select California 
-colnames(energy_df) <- c("Year", "Month", "State", "Total_Sales")
+colnames(energy_df) <- c("Year", "Month", "State", "Megawatts")
 table(grepl("CA", energy_df$State)) # check
 energy_df <- energy_df[energy_df$State == "CA",]
 row.names(energy_df) <- NULL
@@ -42,7 +43,7 @@ head(energy_df)
 # Change to integers
 energy_df$Year <- as.integer(energy_df$Year)
 energy_df$Month <- as.integer(energy_df$Month)
-energy_df$Total_Sales <- as.integer(gsub(",", "", energy_df$Total_Sales))
+energy_df$Megawatts <- as.integer(gsub(",", "", energy_df$Megawatts))
 
 # Arrange energy_df in ascending order of time
 energy_df <- energy_df %>%
@@ -61,7 +62,7 @@ Compute yearly average $\hat m_j$ over all months a $\hat m_j=\frac{1}{12}\sum_{
 m_j1 = tapply(energy_ts, floor(time(energy_ts)), mean)
 m_j1 = ts(rep(m_j1, each = 12), start = 2010, frequency = 12)
 
-ts.plot(energy_ts, m_j1, col = c("black", "red"), main = "Time series with Yearly Average")
+ts.plot(energy_ts, m_j1, col = c("black", "red"), main = "Time series of Megawatts Sold with Yearly Average")
 ts.plot(energy_ts - m_j1, col = "blue")
 ```
 
@@ -75,4 +76,11 @@ ts.plot(energy_ts,mt,col=c("black","red"))
 diff <- na.omit(energy_ts - mt)
 ts.plot(diff, col="blue")
 ```
+
+
+```{r}
+# ACF
+acf(energy_ts)
+```
+
 

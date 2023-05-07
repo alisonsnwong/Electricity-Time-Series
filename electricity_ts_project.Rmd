@@ -15,31 +15,34 @@ setwd(path)
 library(readxl)
 library(tidyverse)
 library(latex2exp)
+library(forecast)
 ```
 
+# Read in data and perform data cleaning and wrangling 
 ```{r}
-
 # Read data 
 energy <- read.csv("energy-ca.csv")
 
-# I subset the data frame to only select certain columns. Then, I get rid of the first two rows, since they are unnecessary (these rows were the result of a small issue when importing the file). Then, I check the amount of times in which "CA" appears in the "X.2" column which corresponds to the respective state. Then, I add column names. Then, I update the data frame to only include rows where "State == 'CA'". Then, I get rid of empty rows. Then, I check the amount of times in which the State column equals "CA". Since this number, 158, matches with the earlier number, we have support to say no important data was lost. 
-
 # Subset data to select columns we need: Year, Month, State, Megawatts (sold)
 energy_df <- subset(energy, select = c("X", "X.1", "X.2", "X.16"))
-energy_df <- energy_df[-c(1,2),]
+energy_df <- energy_df[-c(1,2),] # remove first two rows (unnecessary as these rows were the result of a small issue when importing the file)
+
+# Add column names
+colnames(energy_df) <- c("Year", "Month", "State", "Megawatts")
+table(grepl("CA", energy_df$State)) # check the amount of times in which "CA" appears in the "X.2" column which corresponds to the respective state
 
 # Subset data to select California 
-colnames(energy_df) <- c("Year", "Month", "State", "Megawatts")
-table(grepl("CA", energy_df$State)) # check
 energy_df <- energy_df[energy_df$State == "CA",]
-row.names(energy_df) <- NULL
-table(grepl("CA", energy_df$State)) # match first check
 
-head(energy_df)
+# Get rid of empty rows
+row.names(energy_df) <- NULL
+
+# Check the amount of times in which the State column equals "CA". Since this number, 158, matches with the earlier number, we have support to say no important data was lost
+table(grepl("CA", energy_df$State))
 ```
 
+# Arrange data to create a time series object
 ```{r}
-
 # Change to integers
 energy_df$Year <- as.integer(energy_df$Year)
 energy_df$Month <- as.integer(energy_df$Month)
@@ -48,38 +51,55 @@ energy_df$Megawatts <- as.integer(gsub(",", "", energy_df$Megawatts))
 # Arrange energy_df in ascending order of time
 energy_df <- energy_df %>%
   arrange(Year, Month)
+head(energy_df)
 
 # Time series model 
 energy_ts <- ts(energy_df[,4], start= 2010, frequency = 12)
-ts.plot(energy_ts)
+ts.plot(energy_ts, main = "Electricity (Megawatts) Sold with Yearly Average")
 ```
+
+# Perform time series analysis
 
 Compute yearly average $\hat m_j$ over all months a $\hat m_j=\frac{1}{12}\sum_{k=1}^{12}x_{j,k}$ and eliminate the yearly trend
-
 ```{r}
+# Get overall trend by moving average window of 12
+trend = ma(energy_ts, order = 12, centre = T)
+plot(as.ts(energy_ts))
+lines(trend, col = "red")
 
-# REMOVE 2023
-m_j1 = tapply(energy_ts, floor(time(energy_ts)), mean)
-m_j1 = ts(rep(m_j1, each = 12), start = 2010, frequency = 12)
+# Overall trend
+plot(as.ts(trend), )
 
-ts.plot(energy_ts, m_j1, col = c("black", "red"), main = "Time series of Megawatts Sold with Yearly Average")
-ts.plot(energy_ts - m_j1, col = "blue")
+# Detrend only
+detrend = energy_ts - trend
 ```
 
-Compute trend $m_t$ using MA filtering 
-
+Seasonality
 ```{r}
-# 
-mt = stats::filter(energy_ts, filter=c(0.5,rep(1,times=11), 0.5), method="convolution", sides=2)/12
+# Plot new time series that clearly exposes seasonality
+plot(as.ts(detrend))
 
-ts.plot(energy_ts,mt,col=c("black","red"))
-diff <- na.omit(energy_ts - mt)
-ts.plot(diff, col="blue")
+# Get seasonality from detrended time series
+m_t = t(matrix(data = detrend, nrow = 12))
+
+# Monthly seasonality: use matrix of 12 rows
+seasonal = colMeans(m_t, na.rm = T)
+plot(as.ts(rep(seasonal,12)))
 ```
 
-
+Residuals & White Noise
 ```{r}
-# ACF
+# Decomposed time series by detrending and deseasonalizing
+# Extract white noise
+random = energy_ts - trend - seasonal
+plot(as.ts(random))
+
+# Plot time series, ACF, histogram of white noise
+checkresiduals(random)
+```
+
+Compute ACF of the time series
+```{r}
 acf(energy_ts)
 ```
 

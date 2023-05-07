@@ -53,9 +53,15 @@ energy_df <- energy_df %>%
   arrange(Year, Month)
 head(energy_df)
 
+# Remove the 2023 year as only Jan and Feb data is present
+energy_df <- energy_df[energy_df$Year != 2023,]
+
 # Time series model 
 energy_ts <- ts(energy_df[,4], start= 2010, frequency = 12)
-ts.plot(energy_ts, main = "Electricity (Megawatts) Sold with Yearly Average")
+ts.plot(energy_ts, 
+        main = "Electricity (Megawatts) Sold with Yearly Average", 
+        xlab = "Year", 
+        ylab = "Electricity Sold in Megawatts")
 ```
 
 # Perform time series analysis
@@ -63,44 +69,44 @@ ts.plot(energy_ts, main = "Electricity (Megawatts) Sold with Yearly Average")
 Compute yearly average $\hat m_j$ over all months a $\hat m_j=\frac{1}{12}\sum_{k=1}^{12}x_{j,k}$ and eliminate the yearly trend
 ```{r}
 # Get overall trend by moving average window of 12
-trend = ma(energy_ts, order = 12, centre = T)
-plot(as.ts(energy_ts))
-lines(trend, col = "red")
+m_t = ma(energy_ts, order = 12, centre = T)
+ts.plot(energy_ts, xlab = "Year", ylab = "Electricity Sold in Megawatts", main = "")
+lines(m_t, col = "red")
 
 # Overall trend
-plot(as.ts(trend), )
+ts.plot(m_t, xlab = "Year", ylab = "Electricity Sold in Megawatts", main = "")
 
 # Detrend only
-detrend = energy_ts - trend
+detrend = energy_ts - m_t
 ```
 
 Seasonality
 ```{r}
 # Plot new time series that clearly exposes seasonality
-plot(as.ts(detrend))
+ts.plot(detrend, xlab = "Year", ylab = "Electricity Sold in Megawatts", main = "")
 
 # Get seasonality from detrended time series
-m_t = t(matrix(data = detrend, nrow = 12))
+s_t <- t(matrix(data = detrend, nrow = 12))
 
 # Monthly seasonality: use matrix of 12 rows
-seasonal = colMeans(m_t, na.rm = T)
-plot(as.ts(rep(seasonal,12)))
+s_t <- colMeans(s_t, na.rm = T)
+ts.plot(rep(s_t,12), xlab = "Year", ylab = "Electricity Sold in Megawatts", main = "")
 ```
 
 Residuals & White Noise
 ```{r}
 # Decomposed time series by detrending and deseasonalizing
 # Extract white noise
-random = energy_ts - trend - seasonal
-plot(as.ts(random))
+z_t <- energy_ts - m_t - s_t
+ts.plot(z_t)
 
 # Plot time series, ACF, histogram of white noise
-checkresiduals(random)
+checkresiduals(z_t)
 ```
 
 Compute ACF of the time series
 ```{r}
-acf(energy_ts)
+acf(energy_ts) # not sure why the x axis is wrong
 ```
 
 

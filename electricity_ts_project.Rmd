@@ -98,7 +98,7 @@ Residuals & White Noise
 # Decomposed time series by detrending and deseasonalizing
 # Extract white noise
 z_t <- energy_ts - m_t - s_t
-ts.plot(z_t)
+ts.plot(z_t, xlab = "Year", ylab = "Electricity Sold in Megawatts", main = "")
 
 # Plot time series, ACF, histogram of white noise
 checkresiduals(z_t)

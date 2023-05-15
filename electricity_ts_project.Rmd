@@ -12,7 +12,6 @@ knitr::opts_knit$set(root.dir = path)
 setwd(path)
 
 # Load Packages 
-library(readxl)
 library(tidyverse)
 library(latex2exp)
 library(forecast)
@@ -69,7 +68,7 @@ ts.plot(energy_ts,
 Compute yearly average $\hat m_j$ over all months a $\hat m_j=\frac{1}{12}\sum_{k=1}^{12}x_{j,k}$ and eliminate the yearly trend
 ```{r}
 # Get overall trend by moving average window of 12
-m_t = ma(energy_ts, order = 12, centre = T)
+m_t <- ma(energy_ts, order = 12, centre = T)
 ts.plot(energy_ts,
         xlab = "Year",
         ylab = "Electricity Sold in Megawatts",
@@ -82,7 +81,7 @@ ts.plot(m_t,
         main = "Overall Trend")
 
 # Detrend only
-detrend = energy_ts - m_t
+detrend <- energy_ts - m_t
 ```
 
 Seasonality

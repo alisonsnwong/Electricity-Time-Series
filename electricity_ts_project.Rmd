@@ -70,11 +70,16 @@ Compute yearly average $\hat m_j$ over all months a $\hat m_j=\frac{1}{12}\sum_{
 ```{r}
 # Get overall trend by moving average window of 12
 m_t = ma(energy_ts, order = 12, centre = T)
-ts.plot(energy_ts, xlab = "Year", ylab = "Electricity Sold in Megawatts", main = "")
-lines(m_t, col = "red")
+ts.plot(energy_ts,
+        xlab = "Year",
+        ylab = "Electricity Sold in Megawatts",
+        main = "Electricity (Megawatts) Sold with Yearly Average")
 
 # Overall trend
-ts.plot(m_t, xlab = "Year", ylab = "Electricity Sold in Megawatts", main = "")
+ts.plot(m_t,
+        xlab = "Year",
+        ylab = "Electricity Sold in Megawatts",
+        main = "Overall Trend")
 
 # Detrend only
 detrend = energy_ts - m_t
@@ -83,17 +88,20 @@ detrend = energy_ts - m_t
 Seasonality
 ```{r}
 # Plot new time series that clearly exposes seasonality
-ts.plot(detrend, xlab = "Year", ylab = "Electricity Sold in Megawatts", main = "")
+ts.plot(detrend,
+        xlab = "Year",
+        ylab = "Electricity Sold in Megawatts",
+        main = "Electricity Sold (Megawatts) after Detrending")
 
 # Get seasonality from detrended time series
 s_t <- t(matrix(data = detrend, nrow = 12))
 
 # Monthly seasonality: use matrix of 12 rows
 s_t <- colMeans(s_t, na.rm = T)
-ts.plot(rep(s_t,12), xlab = "Year", ylab = "Electricity Sold in Megawatts", main = "")
+ts.plot(rep(s_t,12), xlab = "Year", ylab = "Electricity Sold in Megawatts", main = "Seasonality")
 ```
 
-Residuals & White Noise
+# Analyze residuals
 ```{r}
 # Decomposed time series by detrending and deseasonalizing
 # Extract white noise
@@ -104,9 +112,32 @@ ts.plot(z_t, xlab = "Year", ylab = "Electricity Sold in Megawatts", main = "")
 checkresiduals(z_t)
 ```
 
+# Analyze the “rough” component
+
 Compute ACF of the time series
 ```{r}
-acf(energy_ts) # not sure why the x axis is wrong
+acf(energy_ts, lag = length(x) - 1) # not sure why the x axis is wrong
+
+acf <- acf(energy_ts,plot=FALSE)$acf
+acf
 ```
+The ACF of the time series tails off, meaning that it is likely not a MA(q) process. We will compute and plot PACF to check if the model fits an AR(p) process.
+
+Compute PACF of the time series
+```{r}
+pacf(energy_ts, lag = length(x) - 1)
+
+pacf <- pacf(energy_ts,plot=FALSE)
+pacf
+
+model <- ar(energy_ts, order.max=15)
+model
+```
+
+
+# Predict future values
+
+# Spectral Analysis
+
 
 

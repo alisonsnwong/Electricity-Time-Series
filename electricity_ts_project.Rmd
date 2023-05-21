@@ -14,7 +14,6 @@ setwd(path)
 # Load Packages 
 library(tidyverse)
 library(latex2exp)
-library(forecast)
 ```
 
 # Read in data and perform data cleaning and wrangling 
@@ -105,10 +104,14 @@ ts.plot(rep(s_t,12), xlab = "Year", ylab = "Electricity Sold in Megawatts", main
 # Decomposed time series by detrending and deseasonalizing
 # Extract white noise
 z_t <- energy_ts - m_t - s_t
-ts.plot(z_t, xlab = "Year", ylab = "Electricity Sold in Megawatts", main = "")
+ts.plot(z_t, xlab = "Year", ylab = "Electricity Sold in Megawatts", main = "Residual plot")
 
-# Plot time series, ACF, histogram of white noise
+# Plot time series, ACF, histogram, QQ-plot of white noise
 checkresiduals(z_t)
+acf(z_t, na.action=na.pass)
+hist(z_t)
+qqnorm(z_t)
+qqline(z_t, col = "red")
 ```
 
 # Analyze the “rough” component
@@ -116,7 +119,6 @@ checkresiduals(z_t)
 Compute ACF of the time series
 ```{r}
 acf(energy_ts, lag = length(x) - 1) # not sure why the x axis is wrong
-
 acf <- acf(energy_ts,plot=FALSE)$acf
 acf
 ```
@@ -129,14 +131,29 @@ pacf(energy_ts, lag = length(x) - 1)
 pacf <- pacf(energy_ts,plot=FALSE)
 pacf
 
-model <- ar(energy_ts, order.max=15)
+model <- ar(energy_ts, order.max=30)
 model
 ```
 
 
 # Predict future values
+```{r}
+rec.yw = ar.yw(rec, order=2)
+
+
+```
+
+
+The mean estimate can be obtained from rec.yw$x.mean as μˆ = 62.26, while the autoregres- sive parameter estimates and their standard errors are accessed with the commands rec.yw$ar and sqrt(rec.yw$asy.var.coef) as φˆ1 = 1.3316(.0422) and φˆ2 = −.4445(.0422). Finally, the variance estimate is obtained from rec.yw$var.pred as σˆ2 = 94.7991
 
 # Spectral Analysis
+```{r}
+spectrum()
+
+
+```
+
+
 
 
 

@@ -14,6 +14,9 @@ setwd(path)
 # Load Packages 
 library(tidyverse)
 library(latex2exp)
+library(forecast)
+library(tidyverse)
+library(tseries)
 ```
 
 # Read in data and perform data cleaning and wrangling 
@@ -82,6 +85,7 @@ ts.plot(m_t,
 # Detrend only
 detrend <- energy_ts - m_t
 ```
+We performed a two-sided moving average because (don't know)
 
 Seasonality
 ```{r}
@@ -99,6 +103,8 @@ s_t <- colMeans(s_t, na.rm = T)
 ts.plot(rep(s_t,12), xlab = "Year", ylab = "Electricity Sold in Megawatts", main = "Seasonality")
 ```
 
+
+
 # Analyze residuals
 ```{r}
 # Decomposed time series by detrending and deseasonalizing
@@ -108,43 +114,85 @@ ts.plot(z_t, xlab = "Year", ylab = "Electricity Sold in Megawatts", main = "Resi
 
 # Plot time series, ACF, histogram, QQ-plot of white noise
 checkresiduals(z_t)
-acf(z_t, na.action=na.pass)
-hist(z_t)
 qqnorm(z_t)
 qqline(z_t, col = "red")
+
+# ADF test
+adf.test(z_t[7:150]) # since we used the two-sided MA, the first 6 and last 6 points are NA
 ```
+Since the p-value is smaller than 0.05, we reject the null hypothesis and conclude that our residuals are stationary. 
 
 # Analyze the “rough” component
 
 Compute ACF of the time series
 ```{r}
-acf(energy_ts, lag = length(x) - 1) # not sure why the x axis is wrong
+acf(energy_ts, lag = length(energy_ts) - 1) # not sure why the x axis is wrong
 acf <- acf(energy_ts,plot=FALSE)$acf
 acf
+
+checkresiduals(energy_ts)
 ```
 The ACF of the time series tails off, meaning that it is likely not a MA(q) process. We will compute and plot PACF to check if the model fits an AR(p) process.
 
 Compute PACF of the time series
 ```{r}
-pacf(energy_ts, lag = length(x) - 1)
+pacf(energy_ts, lag = length(energy_ts) - 1) # not sure why the x axis is wrong
 
-pacf <- pacf(energy_ts,plot=FALSE)
+pacf <- pacf(energy_ts, plot=FALSE)
 pacf
 
 model <- ar(energy_ts, order.max=30)
 model
 ```
+ar() function returned an AR(12) model, which is reasonable to us. 
 
-
-# Predict future values
+# Fit ARMA Model
 ```{r}
-rec.yw = ar.yw(rec, order=2)
+#ar.yw(energy_ts, order = 12)
+# For a given time series x we can fit the autoregressive (AR) model using the arima() command and setting order equal to c(1, 0, 0). Note for reference that an AR model is an ARIMA(1, 0, 0) model.
+#Fitting the AR Model to the time series
+AR <- arima(energy_ts, order = c(11,0,0))
+print(AR)
+
+#plotting the series along with the fitted values
+ts.plot(energy_ts)
+AR_fit <- energy_ts - residuals(AR)
+points(AR_fit, type = "l", col = 2, lty = 2)
 
 
 ```
 
+# Predict future values
+```{r}
+#Using predict() to make a 1-step forecast
+predict_AR <- predict(AR, n.ahead = 12)
 
-The mean estimate can be obtained from rec.yw$x.mean as μˆ = 62.26, while the autoregres- sive parameter estimates and their standard errors are accessed with the commands rec.yw$ar and sqrt(rec.yw$asy.var.coef) as φˆ1 = 1.3316(.0422) and φˆ2 = −.4445(.0422). Finally, the variance estimate is obtained from rec.yw$var.pred as σˆ2 = 94.7991
+#Obtaining the 1-step forecast using $pred[1]
+predict_AR
+
+#plotting the AirPassenger series plus the forecast and 95% prediction intervals
+ts.plot(energy_ts, xlim = c(2010, 2024))
+AR_forecast <- predict_AR$pred
+AR_forecast_se <- predict_AR$se
+points(AR_forecast, type = "l", col = 2)
+points(AR_forecast - 2*AR_forecast_se, type = "l", col = "blue", lty = 2)
+points(AR_forecast + 2*AR_forecast_se, type = "l", col = "blue", lty = 2)
+```
+
+```{r}
+# subset 2010 to 2021 to predict 2022 to see the difference 
+# Remove the 2023 year as only Jan and Feb data is present
+energytest <- energy_df[energy_df$Year != 2023 & energy_df$Year != 2022,]
+
+# Time series model 
+energytest_ts <- ts(energytest[,4], start= 2010, frequency = 12)
+ts.plot(energytest_ts, xlim = c(2010, 2023))
+AR_2022 <- predict(AR, n.past = 1)
+points(AR_2022$pred, type = "l", col = 2)
+points(AR_2022$pred - 2*AR_2022$se, type = "l", col = "blue", lty = 2)
+points(AR_2022$pred + 2*AR_2022$se, type = "l", col = "blue", lty = 2)
+``` 
+
 
 # Spectral Analysis
 ```{r}

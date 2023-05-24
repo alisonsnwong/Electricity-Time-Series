@@ -10,13 +10,14 @@ knitr::opts_chunk$set(echo = TRUE)
 path <- "/Users/alisonwong/git/electricity-time-series"
 knitr::opts_knit$set(root.dir = path)
 setwd(path)
+```
 
+# Setup
+```{r}
 # Load Packages 
 library(tidyverse)
-library(latex2exp)
 library(forecast)
-library(tidyverse)
-library(tseries)
+library(lmtest)
 ```
 
 # Read in data and perform data cleaning and wrangling 
@@ -56,16 +57,21 @@ head(energy_df)
 
 # Remove the 2023 year as only Jan and Feb data is present
 energy_df <- energy_df[energy_df$Year != 2023,]
+
+# Time series objedct
+energy_ts <- ts(energy_df[,4], start= 2010, frequency = 12)
 ```
 
-# Perform time series analysis
+# Analyzing the “smooth” component
 
 First, we compute the yearly average $\hat m_j$ over all months a $\hat m_j=\frac{1}{12}\sum_{k=1}^{12}x_{j,k}$ and eliminate the yearly trend.
 
 We detrended the time series using a two-sided moving average because (don't know)
 ```{r}
 # Get overall trend by moving average window of 12
-m_t <- ma(energy_ts, order = 12, centre = T)
+decomp <- decompose(energy_ts, type = "additive")
+m_t <- decomp$trend
+
 ts.plot(energy_ts,
         xlab = "Year",
         ylab = "Electricity Sold in Megawatts",
@@ -94,15 +100,12 @@ ts.plot(detrend,
         ylab = "Electricity Sold in Megawatts",
         main = "Electricity Sold (Megawatts) after Detrending")
 
-# Get seasonality from detrended time series
-s_t <- t(matrix(data = detrend, nrow = 12))
-
-# Monthly seasonality: use matrix of 12 rows
-s_t <- colMeans(s_t, na.rm = T)
-ts.plot(rep(s_t,12), xlab = "Year", ylab = "Electricity Sold in Megawatts", main = "Seasonality")
+# Get seasonality
+s_t <- decomp$seasonal
+ts.plot(s_t, xlab = "Year", ylab = "Electricity Sold in Megawatts", main = "Seasonality")
 ```
 
-# Analyze residuals
+# Analyzing the residuals
 ```{r}
 # Decomposed time series by detrending and deseasonalizing
 # Extract residuals
@@ -113,107 +116,184 @@ checkresiduals(z_t)
 qqnorm(z_t)
 qqline(z_t, col = "red")
 ```
+There are two outliers in our residuals as seen in the histogram that may affect our analysis: Aug 2018 and Sep 2018.
 
-Check for stationarity using the Augmented Dickey-Fuller test
+We will split the dataset into two (Jan 2010 - Jul 2018 and Oct 2018 - Dec 2022) to forecast and backcast the two outliers. We will then replace the outliers with the average of the 2 points from the forecasting/backcasting to ensure that the outliers do not affect our modelling and analysis. 
 ```{r}
-# Augmented Dickey–Fuller test
-adf.test(z_t[7:150]) # since we used the two-sided MA, the first 6 and last 6 points are NA
-mean(z_t, na.rm= TRUE)
+# Jan 2010 - Jul 2018
+df1 <- energy_df[1:103,]
+df1_ts <- ts(df1[,4], start= 2010, frequency = 12)
+
+# Oct 2018 - Dec 2022
+df2 <- energy_df[106:156,]
+df2_ts <- ts(rev(df2[,4]), start= c(2018, 10), frequency = 12) # reversed order - have to reverse back 
+
+# Decompose both ts
+decom_df1 <- decompose(df1_ts, type = "additive")
+decom_df2 <- decompose(df2_ts, type = "additive")
 ```
-Since the p-value is smaller than 0.05, we reject the null hypothesis and conclude that our residuals are stationary. The mean of our residuals rounds to 0, we can conclude that our residuals follows white noise.
 
 # Analyze the “rough” component
 
-Compute ACF of the time series
+First, we have to find the right values of ARIMA(p, d, q) that minimizes the AIC. We created a function that fits each p, q, d values to the residuals provided and finds the combination that exhibits the lowest AIC.
 ```{r}
-#acf(energy_ts, lag = length(energy_ts) - 1) # not sure why the x axis is wrong
-#acf <- acf(energy_ts,plot=FALSE)$acf
+find_arima <- function(residuals, p_values, d_values, q_values) {
+  
+  aic_matrix <- matrix(NA, nrow = length(p_values), ncol = length(q_values))
+  
+  # Loop over all combinations of p, d, and q values
+  for (i in 1:length(p_values)) {
+    for (j in 1:length(d_values)) {
+      for (k in 1:length(q_values)) {
+        # Fit the ARMA model with current p, d, q values
+        arma_model <- arima(decom_df1$random, order = c(p_values[i], d_values[j], q_values[k]))
+      
+        # Calculate the AIC value for the current model
+        aic <- AIC(arma_model)
+      
+        # Store the AIC value in the matrix
+        aic_matrix[i, k] <- aic
+      }
+    }
+  }
+  
+  print(aic_matrix)
+  
+  # Find the indices of the minimum AIC value in the matrix
+  min_indices <- which(aic_matrix == min(aic_matrix), arr.ind = TRUE)
 
-checkresiduals(energy_ts)
+  # Extract the corresponding p, d, q values with the minimum AIC
+  best_p <- p_values[min_indices[, 1]]
+  best_d <- d_values[min_indices[, 2]]
+  best_q <- q_values[min_indices[, 2]]
+  
+  # Print the best p, d, q values
+  cat("Best p:", best_p, "\n")
+  cat("Best d:", best_d, "\n")
+  cat("Best q:", best_q, "\n")
+  cat("AIC:", min(aic_matrix), "\n")
+}
+
+# Define the range of values to consider for p, d, and q
+p_values <- 0:8
+d_values <- 0
+q_values <- 0:8
 ```
-The ACF of the time series tails off, meaning that it is likely not a MA(q) process. We will compute and plot PACF to check if the model fits an AR(p) model process.
 
-Compute PACF of the time series
+Use the function created to find the most suitable ARMA(p,q) model
 ```{r}
-pacf(energy_ts, lag = length(energy_ts) - 1, 
-     main = "PACF of Time Series") # not sure why the x axis is wrong
+find_arima(decom_df1$random, p_values, d_values, q_values)
+find_arima(decom_df2$random, p_values, d_values, q_values)
 
-#pacf <- pacf(energy_ts, plot=FALSE)
-
-model <- ar(energy_ts, order.max=30)
-model
+arma1 <- arima(decom_df1$random, order = c(4, 0, 4))
+arma2 <- arima(decom_df2$random, order = c(4, 0, 4))
 ```
-ar() function returned an AR(12) model, which is reasonable to us. 
 
-# Fit ARMA Model
-
-We we create a new time series dataframe from 2010 to 2021 with our fitted AR model to predict 2022, This will allow us to see if our model can predict the time series accurately. To quantify that, we will calculate the prediction error of our model's predicted values with the actual values of the data. 
+Forecast and backcast the outlier residuals and find its average
 ```{r}
-# For a given time series x we can fit the autoregressive (AR) model using the arima() command and setting order equal to c(1, 0, 0). Note for reference that an AR model is an ARIMA(1, 0, 0) model.
-energytest_ts <- ts(energytest[,4], start= 2010, frequency = 12)
+# Forecast the residuals w/ ARMA(5,6)
+forecast_zt <- predict(arma1, n.ahead = 2)$pred
 
-#Fitting the AR Model to the time series
-AR <- arima(energytest_ts, order = c(11,0,0)) # why can't do 12
-print(AR)
+# Backcast the residuals w/ ARMA(5,6)
+backcast_zt <- rev(predict(arma2, n.ahead = 2)$pred) # reverse to get Aug & Sept 2018 values
 
-#plotting the series along with the fitted values
-ts.plot(energytest_ts)
-AR_fit <- energytest_ts - residuals(AR)
-points(AR_fit, type = "l", col = 2, lty = 2)
+# Average
+avg_zt <- (forecast_zt + backcast_zt)/2
+avg_zt 
 ```
+
+Replace outlier residuals in z_t  
+```{r}
+# Indices and vaalues to replace
+indices <- c(104, 105)
+new_values <- c(avg_zt)
+z_t[indices] <- new_values
+```
+
+Hypothesis testing for stationarity
+```{r}
+checkresiduals(z_t)
+
+# Augmented Dickey–Fuller test for stationarity
+adf.test(z_t[7:150]) # since we used the two-sided MA, the first 6 and last 6 points are NA
+```
+Since the p-value is smaller than 0.05 for the Augmented Dickey–Fuller test, we reject the null hypothesis and conclude that our residuals are stationary.
+
+# Model Fitting
+
+Now that we know that ARMA(5, 6) minimizes the AIC criterion, we will use those values to fit an ARMA model to our residuals.
+```{r}
+find_arima(z_t, p_values, d_values, q_values)
+
+# Fit an ARMA model to the residuals
+arma_model <- arima(z_t, order = c(4, 0, 4))
+arma_model
+```
+
+# Residual Diagnostics - white noise, normality 
+```{r}
+# White Noise
+acf(arma_model$residuals, na.action=na.pass)
+pacf(arma_model$residuals, na.action=na.pass)
+
+# Normality
+qqnorm(arma_model$residuals) # Heavy tail
+qqline(arma_model$residuals, col = "red")
+```
+dvsf
+
+Since the residuals of our ARMA model is normal, we can use the Ljung-Box test to check for white noise where the null hypothesis states that the residuals are independent.
+```{r}
+Box.test(arma_model$residuals, type = "Ljung-Box")
+```
+As our p-value > 0.05, we cannot reject our null hypothesis so we can conclude that our residuals are white noise. This supports what we saw in our ACF and PACF plots where none of the lags exhibits significance, except for h = 0 in the ACF plot.
+
+# Inference
+```{r}
+coeftest(arma_model)
+#AR - drop 2
+
+# drop in formula
+```
+
+FORMULA: 
 
 # Predict future values
-```{r}
-#Using predict() to make a 1 year (12 months) forecast
-predict_AR <- predict(AR, n.ahead = 12)
-predict_AR
 
-forecast <- predict_AR$pred
-forecast_se <- predict_AR$se
+```{r}
+zt_2023 <- predict(arma_model, n.ahead = 24)
 
 # Plot the time series (with 2022) with the 2022 forecast and 95% prediction intervals
-plot(energy_ts)
-points(forecast, type = "l", col = 2, lwd = 2)
-points(forecast - 2*forecast_se, type = "l", col = "blue", lty = 2, lwd = 0.2)
-points(forecast + 2*forecast_se, type = "l", col = "blue", lty = 2, lwd = 0.2)
-legend("topleft", lty=1, bty = "n", col=c("red","black"), c("predicted values","actual values"))
-```
-Predicted 2022
-
-```{r}
-# Calculate prediction error
-accuracy(predict_AR$pred, energy_ts[145:156])
-``` 
-the best model had the lowest error (particularly the MAPE, Mean absolute percentage error)
-
-
-```{r}
-#Using predict() to make a 1 year (12 months) forecast
-predict5 <- predict(AR, n.ahead = 12*5)
-
-forecast5 <- predict5$pred
-forecast_se5 <- predict5$se
-
-# Plot the time series (with 2022) with the 2022 forecast and 95% prediction intervals
-plot(energy_ts, xlim = c(2010, 2027), 
+plot(z_t, xlim = c(2010, 2027),
      main = "Time series predictions from 2022 to 2026")
-points(forecast5, type = "l", col = 2, lwd = 2)
-points(forecast5 - 2*forecast_se5, type = "l", col = "blue", lty = 2, lwd = 0.2)
-points(forecast5 + 2*forecast_se5, type = "l", col = "blue", lty = 2, lwd = 0.2)
+
+points(zt_2023$pred, type = "l", col = 2, lwd = 2)
+points(zt_2023$pred - 2*zt_2023$se, type = "l", col = "blue", lty = 2, lwd = 0.2)
+points(zt_2023$pred + 2*zt_2023$se, type = "l", col = "blue", lty = 2, lwd = 0.2)
 legend("topleft", lty=1, bty = "n", col=c("red","black"), c("predicted values","actual values"))
 ```
-5 years
+
+
+```{r}
+Yt <- zt_2023$pred + m_t[145:156] + s_t[145:156]
+Yt
+# how to predict m_t and s_t???????
+```
 
 # Spectral Analysis
 ```{r}
 spectrum()
 ```
 
+```{r}
+# Calculate prediction error
+#accuracy(predict_AR$pred, energy_ts[145:156])
+``` 
+
 References:
 
 ADF test https://www.r-bloggers.com/2022/06/augmented-dickey-fuller-test-in-r/
-Source for decomposition https://anomaly.io/seasonal-trend-decomposition-in-r/index.html
-
+https://www.statology.org/ljung-box-test/
 
 https://rpubs.com/RatherBit/90267
 https://rpubs.com/JSHAH/481706

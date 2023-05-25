@@ -18,6 +18,7 @@ setwd(path)
 library(tidyverse)
 library(forecast)
 library(lmtest)
+library(tseries)
 ```
 
 # Read in data and perform data cleaning and wrangling 
@@ -62,11 +63,11 @@ energy_df <- energy_df[energy_df$Year != 2023,]
 energy_ts <- ts(energy_df[,4], start= 2010, frequency = 12)
 ```
 
-# Analyzing the “smooth” component
+# Exploratory Data Analysis (EDA)
+### Analyzing the “smooth” component
 
 First, we compute the yearly average $\hat m_j$ over all months a $\hat m_j=\frac{1}{12}\sum_{k=1}^{12}x_{j,k}$ and eliminate the yearly trend.
 
-We detrended the time series using a two-sided moving average because (don't know)
 ```{r}
 # Get overall trend by moving average window of 12
 decomp <- decompose(energy_ts, type = "additive")
@@ -105,7 +106,7 @@ s_t <- decomp$seasonal
 ts.plot(s_t, xlab = "Year", ylab = "Electricity Sold in Megawatts", main = "Seasonality")
 ```
 
-# Analyzing the residuals
+### Analyzing the residuals
 ```{r}
 # Decomposed time series by detrending and deseasonalizing
 # Extract residuals
@@ -132,8 +133,6 @@ df2_ts <- ts(rev(df2[,4]), start= c(2018, 10), frequency = 12) # reversed order 
 decom_df1 <- decompose(df1_ts, type = "additive")
 decom_df2 <- decompose(df2_ts, type = "additive")
 ```
-
-# Analyze the “rough” component
 
 First, we have to find the right values of ARIMA(p, d, q) that minimizes the AIC. We created a function that fits each p, q, d values to the residuals provided and finds the combination that exhibits the lowest AIC.
 ```{r}
@@ -219,9 +218,11 @@ adf.test(z_t[7:150]) # since we used the two-sided MA, the first 6 and last 6 po
 ```
 Since the p-value is smaller than 0.05 for the Augmented Dickey–Fuller test, we reject the null hypothesis and conclude that our residuals are stationary.
 
-# Model Fitting
+# Analyze the “rough” component
 
-Now that we know that ARMA(5, 6) minimizes the AIC criterion, we will use those values to fit an ARMA model to our residuals.
+### Model Fitting
+
+Now that we know that ARMA(4, 4) minimizes the AIC criterion, we will use those values to fit an ARMA model to our residuals.
 ```{r}
 find_arima(z_t, p_values, d_values, q_values)
 
@@ -230,7 +231,7 @@ arma_model <- arima(z_t, order = c(4, 0, 4))
 arma_model
 ```
 
-# Residual Diagnostics - white noise, normality 
+### Residual Diagnostics - white noise, normality 
 ```{r}
 # White Noise
 acf(arma_model$residuals, na.action=na.pass)
@@ -240,7 +241,7 @@ pacf(arma_model$residuals, na.action=na.pass)
 qqnorm(arma_model$residuals) # Heavy tail
 qqline(arma_model$residuals, col = "red")
 ```
-dvsf
+The ACF and PACF shows that our residuals are not significant and falls under the normality assumption.
 
 Since the residuals of our ARMA model is normal, we can use the Ljung-Box test to check for white noise where the null hypothesis states that the residuals are independent.
 ```{r}
@@ -249,23 +250,32 @@ Box.test(arma_model$residuals, type = "Ljung-Box")
 As our p-value > 0.05, we cannot reject our null hypothesis so we can conclude that our residuals are white noise. This supports what we saw in our ACF and PACF plots where none of the lags exhibits significance, except for h = 0 in the ACF plot.
 
 # Inference
+
+### Interpretation
+
+Find if the coefficients are significant
 ```{r}
+summary(arma_model)
 coeftest(arma_model)
 #AR - drop 2
 
 # drop in formula
 ```
+-What does the model imply?
 
 FORMULA: 
 
-# Predict future values
+# Forecasting future values
 
+-Prediction
+-Confidence interval 
+-Comments
 ```{r}
-zt_2023 <- predict(arma_model, n.ahead = 24)
+zt_2023 <- predict(arma_model, n.ahead = 12)
 
 # Plot the time series (with 2022) with the 2022 forecast and 95% prediction intervals
-plot(z_t, xlim = c(2010, 2027),
-     main = "Time series predictions from 2022 to 2026")
+plot(z_t, xlim = c(2010, 2023),
+     main = "Time series predictions from 2022 to 2023")
 
 points(zt_2023$pred, type = "l", col = 2, lwd = 2)
 points(zt_2023$pred - 2*zt_2023$se, type = "l", col = "blue", lty = 2, lwd = 0.2)
@@ -275,20 +285,42 @@ legend("topleft", lty=1, bty = "n", col=c("red","black"), c("predicted values","
 
 
 ```{r}
-Yt <- zt_2023$pred + m_t[145:156] + s_t[145:156]
-Yt
-# how to predict m_t and s_t???????
+Yt <- zt_2023$pred + s_t[1:12] + m_t[145:156]
+
+plot(energy_ts, xlim = c(2010, 2024),
+     main = "Time series predictions from 2022 to 2026")
+
+points(Yt, type = "l", col = 2, lwd = 2)
+points(zt_2023$pred - 2*zt_2023$se + s_t[1:12] + m_t[145:156], 
+       type = "l", col = "blue", lty = 2, lwd = 0.2)
+points(zt_2023$pred + 2*zt_2023$se + s_t[1:12] + m_t[145:156], 
+       type = "l", col = "blue", lty = 2, lwd = 0.2)
+legend("topleft", lty=1, bty = "n", col=c("red","black"), c("predicted values","actual values"))
+# how to predict m_t and s_t???
 ```
+
+```{r}
+# Calculate prediction error?
+#accuracy(predict_AR$pred, energy_ts[145:156])
+``` 
 
 # Spectral Analysis
 ```{r}
 spectrum()
-```
 
-```{r}
-# Calculate prediction error
-#accuracy(predict_AR$pred, energy_ts[145:156])
-``` 
+
+#spec <- spec.ar(z_t, plot = FALSE, na.action = na.pass)  # parametric estimation based on AR model
+# The latter's order is estimated using the Yule-Walker equations, with
+# order selected by AIC
+#sun_np = spectrum(z_t, spans = c(5, 5), plot = FALSE, na.action = na.pass)  # nonparametric  
+#plot(sun_ar$freq, sun_ar$spec, type = "l", log = "y", ylab = "spectrum", xlab = "frequency", 
+#    bty = "l")
+#lines(sun_np$freq, sun_np$spec, lty = 2)
+#legend("topright", c("parametric", "nonparametric"), lty = 1:2, bty = "n")
+
+# draw periodogram
+# decompose data in spectral domain 
+```
 
 References:
 

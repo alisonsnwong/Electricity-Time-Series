@@ -6,7 +6,6 @@ date: "2023-05-06"
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-
 path <- "/Users/alisonwong/git/electricity-time-series"
 knitr::opts_knit$set(root.dir = path)
 setwd(path)
@@ -54,29 +53,38 @@ energy_df$Megawatts <- as.integer(gsub(",", "", energy_df$Megawatts))
 # Arrange energy_df in ascending order of time
 energy_df <- energy_df %>%
   arrange(Year, Month)
-head(energy_df)
+```
 
-# Remove the 2023 year as only Jan and Feb data is present
-energy_df <- energy_df[energy_df$Year != 2023,]
+To gauge how accurate our final ARMA model is, we will remove the 2022 data from our time series and use the 2010-2021 data to create our model and to predict the electricity sold in 2022. 
+```{r}
+# Remove the 2022 and 2023 year as only Jan and Feb data is present
+energy2022 <- energy_df[133:158,]
+energy_df1 <- energy_df[energy_df$Year != 2023 & energy_df$Year != 2022,] 
 
-# Time series objedct
-energy_ts <- ts(energy_df[,4], start= 2010, frequency = 12)
+# Time series object
+energy_ts <- ts(energy_df1[,4], start= 2010, frequency = 12)
+energy2022 <- ts(energy2022[,4], start= 2021, frequency = 12)
+
+# Divide data by a million to standardize units in a more perceivable way 
+energy_ts <- energy_ts/(10^6)
+energy2022 <- energy2022/(10^6)
 ```
 
 # Exploratory Data Analysis (EDA)
 ### Analyzing the “smooth” component
-
-First, we compute the yearly average $\hat m_j$ over all months a $\hat m_j=\frac{1}{12}\sum_{k=1}^{12}x_{j,k}$ and eliminate the yearly trend.
-
 ```{r}
-# Get overall trend by moving average window of 12
-decomp <- decompose(energy_ts, type = "additive")
-m_t <- decomp$trend
+# Get overall trend by moving average window of 12 XXXXXXCHANGE
+# Seasonal and Trend decomposition using Loess (locally weighted regression and scatter plot smoothing)
+model <- stl(energy_ts, s.window = "periodic")
 
+# Get m_t
+m_t <- model$time.series[, "trend"]
+
+# Plot time series data with yearly average
 ts.plot(energy_ts,
         xlab = "Year",
         ylab = "Electricity Sold in Megawatts",
-        main = "Electricity (Megawatts) Sold in California with Yearly Average")
+        main = "Electricity (Million Megawatts) Sold in California with Yearly Average")
 lines(m_t, col = "red")
 ```
 From the time series model, we can see that there is a seasonal trend in our electricity data with a peak in electricity sold in months around the summer of 2019.  
@@ -85,30 +93,29 @@ From the time series model, we can see that there is a seasonal trend in our ele
 # Overall trend
 ts.plot(m_t,
         xlab = "Year",
-        ylab = "Electricity Sold in Megawatts",
+        ylab = "Electricity Sold in Megawatts (Millions)",
         main = "Overall Trend")
 
 # Detrend only
 detrend <- energy_ts - m_t
 ```
-The yearly average remains fairly constant from 2010 to 2022 with a slight drop from 2018 to 2020.
+The yearly average remains fairly constant from 2010 to 2022 with a slight drop from 2018 to 2020. 
 
 Next, we will isolate the seasonality to get our residuals.
 ```{r}
 # Plot new time series that clearly exposes seasonality
 ts.plot(detrend,
         xlab = "Year",
-        ylab = "Electricity Sold in Megawatts",
-        main = "Electricity Sold (Megawatts) after Detrending")
+        ylab = "Electricity Sold in Megawatts (Millions)",
+        main = "Electricity Sold (Million Megawatts) after Detrending")
 
 # Get seasonality
-s_t <- decomp$seasonal
-ts.plot(s_t, xlab = "Year", ylab = "Electricity Sold in Megawatts", main = "Seasonality")
+s_t <- model$time.series[, "seasonal"]
+ts.plot(s_t, xlab = "Year", ylab = "Electricity Sold in Megawatts (Millions)", main = "Seasonality")
 ```
 
 ### Analyzing the residuals
 ```{r}
-# Decomposed time series by detrending and deseasonalizing
 # Extract residuals
 z_t <- energy_ts - m_t - s_t
 
@@ -122,21 +129,23 @@ There are two outliers in our residuals as seen in the histogram that may affect
 We will split the dataset into two (Jan 2010 - Jul 2018 and Oct 2018 - Dec 2022) to forecast and backcast the two outliers. We will then replace the outliers with the average of the 2 points from the forecasting/backcasting to ensure that the outliers do not affect our modelling and analysis. 
 ```{r}
 # Jan 2010 - Jul 2018
-df1 <- energy_df[1:103,]
+df1 <- energy_df1[1:103,]
 df1_ts <- ts(df1[,4], start= 2010, frequency = 12)
+df1_ts <- df1_ts/(10^6)
 
 # Oct 2018 - Dec 2022
-df2 <- energy_df[106:156,]
+df2 <- energy_df1[106:144,]
 df2_ts <- ts(rev(df2[,4]), start= c(2018, 10), frequency = 12) # reversed order - have to reverse back 
+df2_ts <- df2_ts/(10^6)
 
 # Decompose both ts
-decom_df1 <- decompose(df1_ts, type = "additive")
-decom_df2 <- decompose(df2_ts, type = "additive")
+decom_df1 <- stl(df1_ts, s.window = "periodic")
+decom_df2 <- stl(df2_ts, s.window = "periodic")
 ```
 
 First, we have to find the right values of ARIMA(p, d, q) that minimizes the AIC. We created a function that fits each p, q, d values to the residuals provided and finds the combination that exhibits the lowest AIC.
 ```{r}
-find_arima <- function(residuals, p_values, d_values, q_values) {
+find_arima <- function(X, p_values, d_values, q_values) {
   
   aic_matrix <- matrix(NA, nrow = length(p_values), ncol = length(q_values))
   
@@ -144,14 +153,19 @@ find_arima <- function(residuals, p_values, d_values, q_values) {
   for (i in 1:length(p_values)) {
     for (j in 1:length(d_values)) {
       for (k in 1:length(q_values)) {
-        # Fit the ARMA model with current p, d, q values
-        arma_model <- arima(decom_df1$random, order = c(p_values[i], d_values[j], q_values[k]))
-      
-        # Calculate the AIC value for the current model
-        aic <- AIC(arma_model)
-      
-        # Store the AIC value in the matrix
-        aic_matrix[i, k] <- aic
+        
+        # Try fitting the ARMA model with current p, d, q values
+        tryCatch({
+          arma_model <- arima(X, order = c(p_values[i], d_values[j], q_values[k]))
+          # Calculate the AIC value for the current model
+          aic <- AIC(arma_model)
+          # Store the AIC value in the matrix
+          aic_matrix[i, k] <- aic
+        }, error = function(e) {
+          # If an error occurs, assign -1 to the matrix element
+          aic_matrix[i, k] <- -1
+        })
+        
       }
     }
   }
@@ -160,7 +174,6 @@ find_arima <- function(residuals, p_values, d_values, q_values) {
   
   # Find the indices of the minimum AIC value in the matrix
   min_indices <- which(aic_matrix == min(aic_matrix), arr.ind = TRUE)
-
   # Extract the corresponding p, d, q values with the minimum AIC
   best_p <- p_values[min_indices[, 1]]
   best_d <- d_values[min_indices[, 2]]
@@ -170,22 +183,22 @@ find_arima <- function(residuals, p_values, d_values, q_values) {
   cat("Best p:", best_p, "\n")
   cat("Best d:", best_d, "\n")
   cat("Best q:", best_q, "\n")
-  cat("AIC:", min(aic_matrix), "\n")
+  cat("AIC:", min(aic_matrix, na.rm = TRUE), "\n")
 }
 
+
 # Define the range of values to consider for p, d, and q
-p_values <- 0:8
+p_values <- 0:6
 d_values <- 0
-q_values <- 0:8
+q_values <- 0:6
 ```
 
 Use the function created to find the most suitable ARMA(p,q) model
 ```{r}
-find_arima(decom_df1$random, p_values, d_values, q_values)
-find_arima(decom_df2$random, p_values, d_values, q_values)
-
-arma1 <- arima(decom_df1$random, order = c(4, 0, 4))
-arma2 <- arima(decom_df2$random, order = c(4, 0, 4))
+find_arima(decom_df1$time.series[, "remainder"], p_values, d_values, q_values)
+find_arima(decom_df2$time.series[, "remainder"], p_values, d_values, q_values)
+arma1 <- arima(decom_df1$time.series[, "remainder"], order = c(4, 0, 5))
+arma2 <- arima(decom_df2$time.series[, "remainder"], order = c(6, 0, 3))
 ```
 
 Forecast and backcast the outlier residuals and find its average
@@ -203,7 +216,7 @@ avg_zt
 
 Replace outlier residuals in z_t  
 ```{r}
-# Indices and vaalues to replace
+# Indices and values to replace
 indices <- c(104, 105)
 new_values <- c(avg_zt)
 z_t[indices] <- new_values
@@ -214,7 +227,7 @@ Hypothesis testing for stationarity
 checkresiduals(z_t)
 
 # Augmented Dickey–Fuller test for stationarity
-adf.test(z_t[7:150]) # since we used the two-sided MA, the first 6 and last 6 points are NA
+adf.test(z_t[7:127]) # since we used the two-sided MA, the first 6 and last 6 points are NA
 ```
 Since the p-value is smaller than 0.05 for the Augmented Dickey–Fuller test, we reject the null hypothesis and conclude that our residuals are stationary.
 
@@ -234,8 +247,8 @@ arma_model
 ### Residual Diagnostics - white noise, normality 
 ```{r}
 # White Noise
-acf(arma_model$residuals, na.action=na.pass)
-pacf(arma_model$residuals, na.action=na.pass)
+acf(arma_model$residuals, na.action = na.pass)
+pacf(arma_model$residuals, na.action = na.pass)
 
 # Normality
 qqnorm(arma_model$residuals) # Heavy tail
@@ -255,77 +268,79 @@ As our p-value > 0.05, we cannot reject our null hypothesis so we can conclude t
 
 Find if the coefficients are significant
 ```{r}
-summary(arma_model)
 coeftest(arma_model)
-#AR - drop 2
-
-# drop in formula
 ```
--What does the model imply?
+The P-value for the AR2 coefficient is larger than 0.05, which implies that it is not significant. The AR2 coefficient will be dropped from our final ARMA model.
 
-FORMULA: 
-
+$$X_t = 0.338X_{t-1} + 0.638X_{t-3} -0.730X_{t-4} + Z_t - 0.856Z_{t-1} - 0.215Z_{t-2} - 0.856Z_{t-3} + Z_{t-4}$$
 # Forecasting future values
-
--Prediction
--Confidence interval 
--Comments
 ```{r}
-zt_2023 <- predict(arma_model, n.ahead = 12)
-
+xt_hat22 <- predict(arma_model, n.ahead = 12)
 # Plot the time series (with 2022) with the 2022 forecast and 95% prediction intervals
 plot(z_t, xlim = c(2010, 2023),
-     main = "Time series predictions from 2022 to 2023")
-
-points(zt_2023$pred, type = "l", col = 2, lwd = 2)
-points(zt_2023$pred - 2*zt_2023$se, type = "l", col = "blue", lty = 2, lwd = 0.2)
-points(zt_2023$pred + 2*zt_2023$se, type = "l", col = "blue", lty = 2, lwd = 0.2)
+     main = "Time series white noise predictions from 2022 to 2023")
+points(xt_hat22$pred, type = "l", col = 2, lwd = 2)
+points(xt_hat22$pred - 2*xt_hat22$se, type = "l", col = "blue", lty = 2, lwd = 0.2)
+points(xt_hat22$pred + 2*xt_hat22$se, type = "l", col = "blue", lty = 2, lwd = 0.2)
 legend("topleft", lty=1, bty = "n", col=c("red","black"), c("predicted values","actual values"))
 ```
 
+Find prediction error of the Xt's
+```{r}
+# Get true Xt's in 2022
+model2022 <- stl(energy2022, s.window = "periodic")
+xt_22 <- model2022$time.series[, "remainder"]
+
+# Get prediction error of Xt's in 2022
+pred_error <- sum(xt_22 - xt_hat22$pred)^2/var(xt_22)
+pred_error
+var(xt_hat22$pred)
+```
+
+Time series predictions for electricity sales in 2022 (Yt)
+```{r}
+# To predict Yt, we have to first fit a polynomial to the trend to be able to predict the trend for the next year
+t <- 1:length(m_t)
+t2 <- t^2
+t3 <- t^3
+t4 <- t^4
+
+trend_model <- lm(m_t ~ t + t2 + t3 + t4)
+summary(trend_model)
+g <- ts(predict(trend_model), start = 2010, frequency = 12)
+
+# Plot 4th degree polynomial on the trend line
+plot(m_t)
+points(g, type = "l", lwd = 1, col = 2)
+
+# Predict the trend for the 2022 year by fitting the next 12 data points to the model
+x <- 145:156
+m2022 <- 21.63 + 0.0004515*(x^2) - 0.000007607*(x^3) + 0.00000003032*(x^4)
+```
+The adjusted R-squared has a high value of 92.56% for the 4th degree polynomial, which means 92.56% of the variability is explained by the 4th degree polynomial model. 
 
 ```{r}
-Yt <- zt_2023$pred + s_t[1:12] + m_t[145:156]
+# Add the decomposed portion back for 2022
+Yt <- xt_hat22$pred + s_t[1:12] + m2022
 
-plot(energy_ts, xlim = c(2010, 2024),
+# Plot
+plot(energy_ts, xlim = c(2010, 2023),
      main = "Time series predictions from 2022 to 2026")
-
+points(energy2022, type = "l", lwd = 1)
 points(Yt, type = "l", col = 2, lwd = 2)
-points(zt_2023$pred - 2*zt_2023$se + s_t[1:12] + m_t[145:156], 
-       type = "l", col = "blue", lty = 2, lwd = 0.2)
-points(zt_2023$pred + 2*zt_2023$se + s_t[1:12] + m_t[145:156], 
-       type = "l", col = "blue", lty = 2, lwd = 0.2)
 legend("topleft", lty=1, bty = "n", col=c("red","black"), c("predicted values","actual values"))
-# how to predict m_t and s_t???
 ```
 
+Prediction Error for electricity sales of the 2022 year
 ```{r}
-# Calculate prediction error?
-#accuracy(predict_AR$pred, energy_ts[145:156])
+pred_error <- sum(energy2022 - Yt)^2/var(energy2022[13:24])
+pred_error
+var(Yt)
 ``` 
 
 # Spectral Analysis
-```{r}
-spectrum()
-
-
-#spec <- spec.ar(z_t, plot = FALSE, na.action = na.pass)  # parametric estimation based on AR model
-# The latter's order is estimated using the Yule-Walker equations, with
-# order selected by AIC
-#sun_np = spectrum(z_t, spans = c(5, 5), plot = FALSE, na.action = na.pass)  # nonparametric  
-#plot(sun_ar$freq, sun_ar$spec, type = "l", log = "y", ylab = "spectrum", xlab = "frequency", 
-#    bty = "l")
-#lines(sun_np$freq, sun_np$spec, lty = 2)
-#legend("topright", c("parametric", "nonparametric"), lty = 1:2, bty = "n")
-
-# draw periodogram
-# decompose data in spectral domain 
-```
 
 References:
-
+https://www.geo.fu-berlin.de/en/v/soga/Geodata-analysis/time-series-analysis/Seasonal-decompositon/STL-decomposition/index.html#:~:text=In%20R%20the%20stl(),loess%20window%20for%20seasonal%20extraction.
 ADF test https://www.r-bloggers.com/2022/06/augmented-dickey-fuller-test-in-r/
 https://www.statology.org/ljung-box-test/
-
-https://rpubs.com/RatherBit/90267
-https://rpubs.com/JSHAH/481706

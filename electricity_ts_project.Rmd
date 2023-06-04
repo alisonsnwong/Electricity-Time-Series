@@ -273,10 +273,12 @@ coeftest(arma_model)
 The P-value for the AR2 coefficient is larger than 0.05, which implies that it is not significant. The AR2 coefficient will be dropped from our final ARMA model.
 
 $$X_t = 0.338X_{t-1} + 0.638X_{t-3} -0.730X_{t-4} + Z_t - 0.856Z_{t-1} - 0.215Z_{t-2} - 0.856Z_{t-3} + Z_{t-4}$$
-# Forecasting future values
+# Forecasting future values of Xt's
 ```{r}
+# Forecasting next year
 xt_hat22 <- predict(arma_model, n.ahead = 12)
-# Plot the time series (with 2022) with the 2022 forecast and 95% prediction intervals
+
+# Plot the time series with the 2022 forecast and 95% prediction intervals
 plot(z_t, xlim = c(2010, 2023),
      main = "Time series white noise predictions from 2022 to 2023")
 points(xt_hat22$pred, type = "l", col = 2, lwd = 2)
@@ -296,8 +298,9 @@ pred_error <- sum(xt_22 - xt_hat22$pred)^2/var(xt_22)
 pred_error
 var(xt_hat22$pred)
 ```
+The prediction error of 0.206 is close to the variance of the predicted values of 0.227.
 
-Time series predictions for electricity sales in 2022 (Yt)
+Now, we will forecast the predictions for electricity sales in 2022 (Yt).
 ```{r}
 # To predict Yt, we have to first fit a polynomial to the trend to be able to predict the trend for the next year
 t <- 1:length(m_t)
@@ -305,6 +308,7 @@ t2 <- t^2
 t3 <- t^3
 t4 <- t^4
 
+# Fit model
 trend_model <- lm(m_t ~ t + t2 + t3 + t4)
 summary(trend_model)
 g <- ts(predict(trend_model), start = 2010, frequency = 12)
@@ -341,6 +345,6 @@ var(Yt)
 # Spectral Analysis
 
 References:
-https://www.geo.fu-berlin.de/en/v/soga/Geodata-analysis/time-series-analysis/Seasonal-decompositon/STL-decomposition/index.html#:~:text=In%20R%20the%20stl(),loess%20window%20for%20seasonal%20extraction.
+STL function https://www.geo.fu-berlin.de/en/v/soga/Geodata-analysis/time-series-analysis/Seasonal-decompositon/STL-decomposition/index.html#:~:text=In%20R%20the%20stl(),loess%20window%20for%20seasonal%20extraction.
 ADF test https://www.r-bloggers.com/2022/06/augmented-dickey-fuller-test-in-r/
 https://www.statology.org/ljung-box-test/

@@ -61,12 +61,12 @@ energy_df <- energy_df %>%
 To gauge how accurate our final ARMA model is, we will remove the 2022 data from our time series and use the 2010-2021 data to create our model and to predict the electricity sold in 2022. 
 ```{r}
 # Remove the 2022 and 2023 year as only Jan and Feb data is present
-energy2022 <- energy_df[133:158,]
+energy_df2022 <- energy_df[133:158,]
 energy_df1 <- energy_df[energy_df$Year != 2023 & energy_df$Year != 2022,] 
 
 # Time series object
 energy_ts <- ts(energy_df1[,4], start= 2010, frequency = 12)
-energy2022 <- ts(energy2022[,4], start= 2021, frequency = 12)
+energy2022 <- ts(energy_df2022[,4], start= 2021, frequency = 12)
 
 # Divide data by a million to standardize units in a more perceivable way 
 energy_ts <- energy_ts/(10^6)
@@ -135,7 +135,7 @@ df1 <- energy_df1[1:103,]
 df1_ts <- ts(df1[,4], start= 2010, frequency = 12)
 df1_ts <- df1_ts/(10^6)
 
-# Oct 2018 - Dec 2022
+# Oct 2018 - Dec 2021
 df2 <- energy_df1[106:144,]
 df2_ts <- ts(rev(df2[,4]), start= c(2018, 10), frequency = 12) # reversed order - have to reverse back 
 df2_ts <- df2_ts/(10^6)
@@ -190,9 +190,9 @@ find_arima <- function(X, p_values, d_values, q_values) {
 }
 
 # Define the range of values to consider for p, d, and q
-p_values <- 0:6
+p_values <- 1:6
 d_values <- 0
-q_values <- 0:6
+q_values <- 1:6
 ```
 
 Use the function created to find the most suitable ARMA(p,q) model
@@ -240,7 +240,7 @@ Since the p-value is smaller than 0.05 for the Augmented Dickey–Fuller test, w
 
 Now that we know that ARMA(4, 4) minimizes the AIC criterion, we will use those values to fit an ARMA model to our residuals.
 ```{r}
-find_arima(z_t, p_values, d_values, q_values)
+find_arima(z_t, 1:4, 0, 1:4)
 
 # Fit an ARMA model to the residuals
 arma_model <- arima(z_t, order = c(4, 0, 4))
@@ -330,10 +330,12 @@ The adjusted R-squared has a high value of 92.56% for the 4th degree polynomial,
 # Add the decomposed portion back for 2022
 Yt <- xt_hat22$pred + s_t[1:12] + m2022
 
+energy22 <- ts(energy_df2022[1:24,4], start = 2021, frequency = 12)/(10^6)
+
 # Plot
 plot(energy_ts, xlim = c(2010, 2023),
      main = "Time series predictions of 2022", ylab = "Electricity Sales (Million Megawatts)")
-points(energy2022, type = "l", lwd = 1)
+points(energy22, type = "l", lwd = 1)
 points(Yt, type = "l", col = 2, lwd = 2)
 legend("topleft", lty=1, bty = "n", col=c("red","black"), c("predicted values","actual values"))
 ```
@@ -346,7 +348,10 @@ var(Yt)
 ``` 
 
 # Spectral Analysis
-
+```{r}
+Ynew <- z_t + m_t + s_t
+plot(Ynew)
+```
 References:
 STL function https://www.geo.fu-berlin.de/en/v/soga/Geodata-analysis/time-series-analysis/Seasonal-decompositon/STL-decomposition/index.html#:~:text=In%20R%20the%20stl(),loess%20window%20for%20seasonal%20extraction.
 ADF test https://www.r-bloggers.com/2022/06/augmented-dickey-fuller-test-in-r/
